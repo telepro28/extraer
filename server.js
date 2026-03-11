@@ -7,32 +7,36 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 const headersDeportes = {
- "Referer":"https://deportes.ksdjugfsddeports.com/",
- "Origin":"https://deportes.ksdjugfsddeports.com",
- "User-Agent":"Mozilla/5.0"
+  Referer:"https://deportes.ksdjugfsddeports.com/",
+  Origin:"https://deportes.ksdjugfsddeports.com",
+  "User-Agent":"Mozilla/5.0"
 }
 
 const headersRegional = {
- "Referer":"https://regionales.saohgdasregions.fun/",
- "Origin":"https://regionales.saohgdasregions.fun",
- "User-Agent":"Mozilla/5.0"
+  Referer:"https://regionales.saohgdasregions.fun/",
+  Origin:"https://regionales.saohgdasregions.fun",
+  "User-Agent":"Mozilla/5.0"
 }
 
-let streamCache = {}
+let streamCache={}
+let playlistCache={}
 
 function decodeBase64(str){
- let result=str
+ let r=str
  for(let i=0;i<4;i++){
-  result=Buffer.from(result,"base64").toString("utf8")
+  r=Buffer.from(r,"base64").toString("utf8")
  }
- return result
+ return r
 }
 
 async function getStream(id,type){
 
- const key = type+"_"+id
+ const key=type+"_"+id
+ const now=Date.now()
 
- if(streamCache[key]) return streamCache[key]
+ if(streamCache[key] && now-streamCache[key].time<60000){
+  return streamCache[key].url
+ }
 
  let embed
  let headers
@@ -47,30 +51,53 @@ async function getStream(id,type){
 
  try{
 
-  const res = await axios.get(embed,{headers,timeout:10000})
+  const res=await axios.get(embed,{headers})
 
-  const match = res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
+  const match=res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
 
   if(!match) return null
 
-  const decoded = decodeBase64(match[1])
+  const decoded=decodeBase64(match[1])
 
-  streamCache[key] = decoded
+  streamCache[key]={url:decoded,time:now}
 
   return decoded
 
  }catch(e){
-
-  console.log("stream error:",e.message)
+  console.log("stream error",e.message)
   return null
-
  }
 
 }
 
-app.get("/",(req,res)=>{
- res.send("proxy híbrido activo")
-})
+async function getPlaylist(id,type){
+
+ const key=type+"_"+id
+ const now=Date.now()
+
+ if(playlistCache[key] && now-playlistCache[key].time<5000){
+  return playlistCache[key].data
+ }
+
+ const stream=await getStream(id,type)
+ if(!stream) return null
+
+ const headers=type==="regional"?headersRegional:headersDeportes
+
+ try{
+
+  const res=await axios.get(stream,{headers})
+
+  playlistCache[key]={data:res.data,time:now}
+
+  return res.data
+
+ }catch(e){
+  console.log("playlist error",e.message)
+  return null
+ }
+
+}
 
 app.get("/play",async(req,res)=>{
 
@@ -88,68 +115,51 @@ app.get("/play",async(req,res)=>{
   type="deportes"
  }
 
- const m3u8 = await getStream(id,type)
-
+ const m3u8=await getStream(id,type)
  if(!m3u8){
   res.send("stream no encontrado")
   return
  }
 
- const headers = type==="regional" ? headersRegional : headersDeportes
-
- try{
-
-  const playlist = await axios.get(m3u8,{headers})
-
-  const base = m3u8.split("/").slice(0,-1).join("/")
-
-  res.setHeader("Content-Type","application/vnd.apple.mpegurl")
-
-  playlist.data.split("\n").forEach(line=>{
-
-   if(line.startsWith("#") || line.trim()==""){
-    res.write(line+"\n")
-    return
-   }
-
-   if(!line.startsWith("http")){
-    line = base+"/"+line
-   }
-
-   /*
-   híbrido:
-   primero intenta directo
-   si el navegador falla
-   puede usar proxy
-   */
-
-   res.write(line+"\n")
-
-  })
-
-  res.end()
-
- }catch(err){
-
-  console.log("playlist error:",err.message)
-  res.send("error playlist")
-
+ const playlist=await getPlaylist(id,type)
+ if(!playlist){
+  res.send("playlist error")
+  return
  }
 
-})
+ const base=m3u8.split("/").slice(0,-1).join("/")
 
-/* fallback proxy */
+ res.setHeader("Content-Type","application/vnd.apple.mpegurl")
+
+ playlist.split("\n").forEach(line=>{
+
+  if(line.startsWith("#")||line.trim()==""){
+   res.write(line+"\n")
+   return
+  }
+
+  if(!line.startsWith("http")){
+   line=base+"/"+line
+  }
+
+  res.write(`/segment?url=${encodeURIComponent(line)}\n`)
+
+ })
+
+ res.end()
+
+})
 
 app.get("/segment",(req,res)=>{
 
  const url=req.query.url
 
  if(!url){
-  res.status(400).send("no url")
+  res.send("no url")
   return
  }
 
- const client = url.startsWith("https") ? https : http
+ const client=url.startsWith("https")?https:http
 
  client.get(url,{
   headers:{
@@ -160,12 +170,10 @@ app.get("/segment",(req,res)=>{
   res.setHeader("Content-Type","video/mp2t")
   stream.pipe(res)
 
- }).on("error",()=>{
-  res.end()
- })
+ }).on("error",()=>res.end())
 
 })
 
 app.listen(PORT,()=>{
- console.log("proxy híbrido funcionando en "+PORT)
+ console.log("proxy funcionando en "+PORT)
 })
