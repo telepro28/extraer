@@ -23,21 +23,26 @@ function decodeBase64(str){
   return result
 }
 
-async function getStream(id){
+async function getStream(id,type){
 
+  const key = type + "_" + id
   const now = Date.now()
 
-  if(
-    streamCache[id] &&
-    now - streamCache[id].time < 60000
-  ){
-    return streamCache[id].url
+  if(streamCache[key] && now - streamCache[key].time < 60000){
+    return streamCache[key].url
   }
 
   try{
 
-    const embed =
-    `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
+    let embed
+
+    if(type === "regional"){
+      embed =
+      `https://regionales.saohgdasregions.fun/tvporinternet3.php?stream=${id}_`
+    }else{
+      embed =
+      `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
+    }
 
     const res = await axios.get(embed,{
       headers,
@@ -50,7 +55,7 @@ async function getStream(id){
 
     const decoded = decodeBase64(match[1])
 
-    streamCache[id] = {
+    streamCache[key] = {
       url: decoded,
       time: now
     }
@@ -66,18 +71,19 @@ async function getStream(id){
 
 }
 
-async function getPlaylist(id){
+async function getPlaylist(id,type){
 
+  const key = type + "_" + id
   const now = Date.now()
 
   if(
-    playlistCache[id] &&
-    now - playlistCache[id].time < 5000
+    playlistCache[key] &&
+    now - playlistCache[key].time < 5000
   ){
-    return playlistCache[id].data
+    return playlistCache[key].data
   }
 
-  const stream = await getStream(id)
+  const stream = await getStream(id,type)
 
   if(!stream) return null
 
@@ -88,7 +94,7 @@ async function getPlaylist(id){
       timeout:10000
     })
 
-    playlistCache[id] = {
+    playlistCache[key] = {
       data: res.data,
       time: now
     }
@@ -110,16 +116,28 @@ res.send("IPTV proxy activo")
 
 app.get("/play", async (req,res)=>{
 
-  const id = req.query.id || 5
+  const deportes = req.query.deportes
+  const regional = req.query.regional
 
-  const m3u8 = await getStream(id)
+  let id
+  let type
+
+  if(regional){
+    id = regional
+    type = "regional"
+  }else{
+    id = deportes || 5
+    type = "deportes"
+  }
+
+  const m3u8 = await getStream(id,type)
 
   if(!m3u8){
     res.status(404).send("stream no encontrado")
     return
   }
 
-  const playlist = await getPlaylist(id)
+  const playlist = await getPlaylist(id,type)
 
   if(!playlist){
     res.status(500).send("playlist error")
