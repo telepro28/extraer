@@ -1,5 +1,7 @@
 const express = require("express")
 const axios = require("axios")
+const http = require("http")
+const https = require("https")
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -37,7 +39,7 @@ async function getStream(id){
 
   }catch(err){
 
-    console.log(err.message)
+    console.log("stream error",err.message)
     return null
 
   }
@@ -74,7 +76,13 @@ app.get("/play", async (req,res)=>{
         line = base+"/"+line
       }
 
-      res.write(line+"\n")
+      /* fallback proxy */
+
+      const hybrid =
+      line +
+      `|Referer=${headers.Referer}&User-Agent=${headers["User-Agent"]}`
+
+      res.write(hybrid+"\n")
 
     })
 
@@ -82,12 +90,31 @@ app.get("/play", async (req,res)=>{
 
   }catch(err){
 
+    console.log("playlist error",err.message)
     res.send("error playlist")
 
   }
 
 })
 
+/* fallback proxy si el cliente no soporta headers */
+
+app.get("/segment",(req,res)=>{
+
+  const url = req.query.url
+
+  const client = url.startsWith("https") ? https : http
+
+  client.get(url,{headers},stream=>{
+
+    res.setHeader("Content-Type","video/mp2t")
+
+    stream.pipe(res)
+
+  })
+
+})
+
 app.listen(PORT,()=>{
-console.log("proxy ligero corriendo")
+console.log("proxy híbrido activo")
 })
