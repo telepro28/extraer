@@ -196,5 +196,5 @@ app.get("/segment",(req,res)=>{
 })
 
 app.listen(PORT,()=>{
-console.log("proxy estable corriendo en "+PORT)
+console.log("proxy estable corriendo en fa"+PORT)
 })
