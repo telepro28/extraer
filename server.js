@@ -12,6 +12,9 @@ const headers = {
   "User-Agent":"Mozilla/5.0"
 }
 
+let streamCache = {}
+let playlistCache = {}
+
 function decodeBase64(str){
   let result = str
   for(let i=0;i<4;i++){
@@ -22,17 +25,88 @@ function decodeBase64(str){
 
 async function getStream(id){
 
-  const embed =
-  `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
+  const now = Date.now()
 
-  const res = await axios.get(embed,{headers})
+  if(
+    streamCache[id] &&
+    now - streamCache[id].time < 60000
+  ){
+    return streamCache[id].url
+  }
 
-  const match = res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
+  try{
 
-  if(!match) return null
+    const embed =
+    `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
 
-  return decodeBase64(match[1])
+    const res = await axios.get(embed,{
+      headers,
+      timeout:10000
+    })
+
+    const match = res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
+
+    if(!match) return null
+
+    const decoded = decodeBase64(match[1])
+
+    streamCache[id] = {
+      url: decoded,
+      time: now
+    }
+
+    return decoded
+
+  }catch(err){
+
+    console.log("stream error:",err.message)
+    return null
+
+  }
+
 }
+
+async function getPlaylist(id){
+
+  const now = Date.now()
+
+  if(
+    playlistCache[id] &&
+    now - playlistCache[id].time < 5000
+  ){
+    return playlistCache[id].data
+  }
+
+  const stream = await getStream(id)
+
+  if(!stream) return null
+
+  try{
+
+    const res = await axios.get(stream,{
+      headers,
+      timeout:10000
+    })
+
+    playlistCache[id] = {
+      data: res.data,
+      time: now
+    }
+
+    return res.data
+
+  }catch(err){
+
+    console.log("playlist error:",err.message)
+    return null
+
+  }
+
+}
+
+app.get("/",(req,res)=>{
+res.send("IPTV proxy activo")
+})
 
 app.get("/play", async (req,res)=>{
 
@@ -41,17 +115,22 @@ app.get("/play", async (req,res)=>{
   const m3u8 = await getStream(id)
 
   if(!m3u8){
-    res.send("stream no encontrado")
+    res.status(404).send("stream no encontrado")
     return
   }
 
-  const playlist = await axios.get(m3u8,{headers})
+  const playlist = await getPlaylist(id)
+
+  if(!playlist){
+    res.status(500).send("playlist error")
+    return
+  }
 
   const base = m3u8.split("/").slice(0,-1).join("/")
 
   res.setHeader("Content-Type","application/vnd.apple.mpegurl")
 
-  playlist.data.split("\n").forEach(line=>{
+  playlist.split("\n").forEach(line=>{
 
     if(line.startsWith("#") || line.trim()==""){
       res.write(line+"\n")
@@ -76,6 +155,11 @@ app.get("/segment",(req,res)=>{
 
   const url = req.query.url
 
+  if(!url){
+    res.status(400).send("no url")
+    return
+  }
+
   const client = url.startsWith("https") ? https : http
 
   client.get(url,{headers},stream=>{
@@ -84,8 +168,9 @@ app.get("/segment",(req,res)=>{
 
     stream.pipe(res)
 
-  }).on("error",()=>{
+  }).on("error",err=>{
 
+    console.log("segment error:",err.message)
     res.end()
 
   })
@@ -93,5 +178,5 @@ app.get("/segment",(req,res)=>{
 })
 
 app.listen(PORT,()=>{
-console.log("proxy funcionando")
+console.log("proxy estable corriendo en "+PORT)
 })
