@@ -22,28 +22,16 @@ function decodeBase64(str){
 
 async function getStream(id){
 
-  try{
+  const embed =
+  `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
 
-    const embed =
-    `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
+  const res = await axios.get(embed,{headers})
 
-    const res = await axios.get(embed,{headers})
+  const match = res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
 
-    const html = res.data
+  if(!match) return null
 
-    const match = html.match(/atob\(atob\(atob\(atob\("([^"]+)/)
-
-    if(!match) return null
-
-    return decodeBase64(match[1])
-
-  }catch(err){
-
-    console.log("stream error",err.message)
-    return null
-
-  }
-
+  return decodeBase64(match[1])
 }
 
 app.get("/play", async (req,res)=>{
@@ -57,47 +45,32 @@ app.get("/play", async (req,res)=>{
     return
   }
 
-  try{
+  const playlist = await axios.get(m3u8,{headers})
 
-    const playlist = await axios.get(m3u8,{headers})
+  const base = m3u8.split("/").slice(0,-1).join("/")
 
-    const base = m3u8.split("/").slice(0,-1).join("/")
+  res.setHeader("Content-Type","application/vnd.apple.mpegurl")
 
-    res.setHeader("Content-Type","application/vnd.apple.mpegurl")
+  playlist.data.split("\n").forEach(line=>{
 
-    playlist.data.split("\n").forEach(line=>{
+    if(line.startsWith("#") || line.trim()==""){
+      res.write(line+"\n")
+      return
+    }
 
-      if(line.startsWith("#") || line.trim()==""){
-        res.write(line+"\n")
-        return
-      }
+    if(!line.startsWith("http")){
+      line = base+"/"+line
+    }
 
-      if(!line.startsWith("http")){
-        line = base+"/"+line
-      }
+    const proxy = `/segment?url=${encodeURIComponent(line)}`
 
-      /* fallback proxy */
+    res.write(proxy+"\n")
 
-      const hybrid =
-      line +
-      `|Referer=${headers.Referer}&User-Agent=${headers["User-Agent"]}`
+  })
 
-      res.write(hybrid+"\n")
-
-    })
-
-    res.end()
-
-  }catch(err){
-
-    console.log("playlist error",err.message)
-    res.send("error playlist")
-
-  }
+  res.end()
 
 })
-
-/* fallback proxy si el cliente no soporta headers */
 
 app.get("/segment",(req,res)=>{
 
@@ -111,10 +84,14 @@ app.get("/segment",(req,res)=>{
 
     stream.pipe(res)
 
+  }).on("error",()=>{
+
+    res.end()
+
   })
 
 })
 
 app.listen(PORT,()=>{
-console.log("proxy híbrido activo")
+console.log("proxy funcionando")
 })
