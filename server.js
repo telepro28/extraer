@@ -1,7 +1,5 @@
 const express = require("express")
 const axios = require("axios")
-const http = require("http")
-const https = require("https")
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -19,7 +17,6 @@ const headersRegional = {
 }
 
 let streamCache = {}
-let playlistCache = {}
 
 function decodeBase64(str){
   let result = str
@@ -31,132 +28,72 @@ function decodeBase64(str){
 
 async function getStream(id,type){
 
-  const key = type + "_" + id
-  const now = Date.now()
+  const key = type+"_"+id
 
-  if(streamCache[key] && now - streamCache[key].time < 60000){
-    return streamCache[key].url
+  if(streamCache[key]){
+    return streamCache[key]
   }
 
-  try{
+  let embed
+  let headers
 
-    let embed
-    let headers
-
-    if(type === "regional"){
-      embed =
-      `https://regionales.saohgdasregions.fun/tvporinternet3.php?stream=${id}_`
-      headers = headersRegional
-    }else{
-      embed =
-      `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
-      headers = headersDeportes
-    }
-
-    const res = await axios.get(embed,{
-      headers,
-      timeout:10000
-    })
-
-    const match = res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
-
-    if(!match) return null
-
-    const decoded = decodeBase64(match[1])
-
-    streamCache[key] = {
-      url: decoded,
-      time: now
-    }
-
-    return decoded
-
-  }catch(err){
-
-    console.log("stream error:",err.message)
-    return null
-
+  if(type==="regional"){
+    embed=`https://regionales.saohgdasregions.fun/tvporinternet3.php?stream=${id}_`
+    headers=headersRegional
+  }else{
+    embed=`https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${id}_`
+    headers=headersDeportes
   }
 
-}
+  const res = await axios.get(embed,{headers})
 
-async function getPlaylist(id,type){
+  const match=res.data.match(/atob\(atob\(atob\(atob\("([^"]+)/)
 
-  const key = type + "_" + id
-  const now = Date.now()
+  if(!match) return null
 
-  if(playlistCache[key] && now - playlistCache[key].time < 5000){
-    return playlistCache[key].data
-  }
+  const decoded=decodeBase64(match[1])
 
-  const stream = await getStream(id,type)
+  streamCache[key]=decoded
 
-  if(!stream) return null
-
-  const headers = type === "regional" ? headersRegional : headersDeportes
-
-  try{
-
-    const res = await axios.get(stream,{
-      headers,
-      timeout:10000
-    })
-
-    playlistCache[key] = {
-      data: res.data,
-      time: now
-    }
-
-    return res.data
-
-  }catch(err){
-
-    console.log("playlist error:",err.message)
-    return null
-
-  }
-
+  return decoded
 }
 
 app.get("/",(req,res)=>{
-res.send("IPTV proxy activo")
+res.send("proxy hibrido activo")
 })
 
-app.get("/play", async (req,res)=>{
+app.get("/play",async(req,res)=>{
 
-  const deportes = req.query.deportes
-  const regional = req.query.regional
+  const regional=req.query.regional
+  const deportes=req.query.deportes
 
   let id
   let type
 
   if(regional){
-    id = regional
-    type = "regional"
+    id=regional
+    type="regional"
   }else{
-    id = deportes || 5
-    type = "deportes"
+    id=deportes||5
+    type="deportes"
   }
 
-  const m3u8 = await getStream(id,type)
+  const m3u8=await getStream(id,type)
 
   if(!m3u8){
-    res.status(404).send("stream no encontrado")
+    res.send("stream no encontrado")
     return
   }
 
-  const playlist = await getPlaylist(id,type)
+  const headers=type==="regional"?headersRegional:headersDeportes
 
-  if(!playlist){
-    res.status(500).send("playlist error")
-    return
-  }
+  const playlist=await axios.get(m3u8,{headers})
 
-  const base = m3u8.split("/").slice(0,-1).join("/")
+  const base=m3u8.split("/").slice(0,-1).join("/")
 
   res.setHeader("Content-Type","application/vnd.apple.mpegurl")
 
-  playlist.split("\n").forEach(line=>{
+  playlist.data.split("\n").forEach(line=>{
 
     if(line.startsWith("#") || line.trim()==""){
       res.write(line+"\n")
@@ -164,12 +101,10 @@ app.get("/play", async (req,res)=>{
     }
 
     if(!line.startsWith("http")){
-      line = base+"/"+line
+      line=base+"/"+line
     }
 
-    const proxy = `/segment?url=${encodeURIComponent(line)}`
-
-    res.write(proxy+"\n")
+    res.write(line+"\n")
 
   })
 
@@ -177,36 +112,6 @@ app.get("/play", async (req,res)=>{
 
 })
 
-app.get("/segment",(req,res)=>{
-
-  const url = req.query.url
-
-  if(!url){
-    res.status(400).send("no url")
-    return
-  }
-
-  const client = url.startsWith("https") ? https : http
-
-  client.get(url,{
-    headers:{
-      "User-Agent":"Mozilla/5.0"
-    }
-  },stream=>{
-
-    res.setHeader("Content-Type","video/mp2t")
-
-    stream.pipe(res)
-
-  }).on("error",err=>{
-
-    console.log("segment error:",err.message)
-    res.end()
-
-  })
-
-})
-
 app.listen(PORT,()=>{
-console.log("proxy funcionando en "+PORT)
+console.log("proxy hibrido corriendo en "+PORT)
 })
