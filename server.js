@@ -111,7 +111,7 @@ async function getPlaylist(id,type){
 }
 
 app.get("/",(req,res)=>{
-res.send("IPTV proxy activo")
+res.send("IPTV proxy hibrido activo")
 })
 
 app.get("/play", async (req,res)=>{
@@ -196,5 +196,5 @@ app.get("/segment",(req,res)=>{
 })
 
 app.listen(PORT,()=>{
-console.log("proxy estable corriendo en fa"+PORT)
+console.log("proxy estable corriendo en"+PORT)
 })
