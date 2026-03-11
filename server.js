@@ -10,7 +10,7 @@ const headers = {
   "Origin": "https://regionales.saohgdasregions.fun"
 }
 
-async function decodeEmbed(url){
+async function extractM3U8(url){
 
     try{
 
@@ -21,20 +21,16 @@ async function decodeEmbed(url){
 
         const html = res.data
 
-        const match = html.match(/atob\(atob\(atob\(atob\("([^"]+)/)
+        const match = html.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/)
 
-        if(!match) return null
-
-        let stream = match[1]
-
-        for(let i=0;i<4;i++){
-            stream = Buffer.from(stream,'base64').toString('utf8')
+        if(match){
+            return match[0]
         }
 
-        return stream
+        return null
 
     }catch(e){
-        console.log("decode error",e.message)
+        console.log("extract error:",e.message)
         return null
     }
 
@@ -42,41 +38,26 @@ async function decodeEmbed(url){
 
 async function getStream(canal,target,regional,deportes){
 
-    try{
-
-        if(canal){
-
-            const embed = `https://regionales.saohgdasregions.fun/stream.php?canal=${canal}&target=${target||3}`
-
-            const res = await axios.get(embed,{
-                timeout:10000,
-                headers
-            })
-
-            const match = res.data.match(/(https?:\/\/[^"' ]+\.m3u8[^"' ]*)/)
-
-            if(match) return match[1]
-
-        }
-
-        if(regional){
-            return await decodeEmbed(`https://regionales.saohgdasregions.fun/tvporinternet3.php?stream=${regional}_`)
-        }
-
-        if(deportes){
-            return await decodeEmbed(`https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${deportes}_`)
-        }
-
-        return null
-
-    }catch(e){
-        console.log("getStream error",e.message)
-        return null
+    if(canal){
+        return await extractM3U8(
+        `https://regionales.saohgdasregions.fun/stream.php?canal=${canal}&target=${target||3}`)
     }
+
+    if(regional){
+        return await extractM3U8(
+        `https://regionales.saohgdasregions.fun/tvporinternet3.php?stream=${regional}_`)
+    }
+
+    if(deportes){
+        return await extractM3U8(
+        `https://deportes.ksdjugfsddeports.com/tvporinternet3.php?stream=${deportes}_`)
+    }
+
+    return null
 }
 
 app.get("/",(req,res)=>{
-res.send("Servidor IPTV híbrido funcionando")
+res.send("Servidor IPTV funcionando")
 })
 
 app.get("/play", async (req,res)=>{
@@ -93,7 +74,6 @@ app.get("/play", async (req,res)=>{
     try{
 
         const playlist = await axios.get(m3u8,{
-            timeout:10000,
             headers
         })
 
@@ -119,12 +99,17 @@ app.get("/play", async (req,res)=>{
         res.end()
 
     }catch(e){
-        console.log("playlist error",e.message)
-        res.status(500).send("error cargando playlist")
+
+        console.log("playlist error:",e.message)
+        res.send("error cargando playlist")
+
     }
 
 })
 
+app.listen(PORT,()=>{
+console.log("server running on "+PORT)
+})
 app.listen(PORT,()=>{
 console.log("server running on "+PORT)
 })
