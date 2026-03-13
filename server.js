@@ -1,5 +1,6 @@
 const express = require("express")
 const axios = require("axios")
+const http = require("http")
 const https = require("https")
 
 const app = express()
@@ -19,6 +20,7 @@ const headersRegional = {
 
 let streamCache={}
 let playlistCache={}
+let segmentCache={}
 
 function decodeBase64(str){
  let r=str
@@ -115,12 +117,14 @@ app.get("/play",async(req,res)=>{
  }
 
  const m3u8=await getStream(id,type)
+
  if(!m3u8){
   res.send("stream no encontrado")
   return
  }
 
  const playlist=await getPlaylist(id,type)
+
  if(!playlist){
   res.send("playlist error")
   return
@@ -158,7 +162,19 @@ app.get("/segment",(req,res)=>{
   return
  }
 
+ const now=Date.now()
+
+ if(segmentCache[url] && now-segmentCache[url].time<5000){
+
+  res.setHeader("Content-Type","video/mp2t")
+  res.send(segmentCache[url].data)
+  return
+
+ }
+
  const client=url.startsWith("https")?https:http
+
+ let chunks=[]
 
  client.get(url,{
   headers:{
@@ -166,13 +182,26 @@ app.get("/segment",(req,res)=>{
   }
  },stream=>{
 
-  res.setHeader("Content-Type","video/mp2t")
-  stream.pipe(res)
+  stream.on("data",chunk=>chunks.push(chunk))
+
+  stream.on("end",()=>{
+
+   const buffer=Buffer.concat(chunks)
+
+   segmentCache[url]={
+    data:buffer,
+    time:now
+   }
+
+   res.setHeader("Content-Type","video/mp2t")
+   res.send(buffer)
+
+  })
 
  }).on("error",()=>res.end())
 
 })
 
 app.listen(PORT,()=>{
- console.log("proxy funcionando en "+PORT)
+ console.log("proxy IPTV optimizado corriendo en "+PORT)
 })
